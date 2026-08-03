@@ -256,3 +256,104 @@ FROM rental
 
 GROUP BY DATE_TRUNC('month', rental_date)
 ORDER BY Rent_Month;
+
+--actors that bring the most money
+SELECT
+	CONCAT(actor.first_name || ' ' || actor.last_name) AS Actor_Name,
+	COUNT(DISTINCT film.film_id) AS Movies_Featured,
+	SUM(payment.amount) AS Revenue_of_Featured_Movies,
+	SUM(payment.amount)/COUNT(DISTINCT film.film_id) AS Average_Revenue_per_Movie
+FROM actor
+
+LEFT JOIN film_actor
+	ON actor.actor_id = film_actor.actor_id
+
+INNER JOIN film
+	ON film_actor.film_id = film.film_id
+
+LEFT JOIN inventory
+	ON film.film_id = inventory.film_id
+
+LEFT JOIN rental 
+	ON inventory.inventory_id = rental.inventory_id
+
+LEFT JOIN payment
+	ON rental.rental_id = payment.rental_id
+
+GROUP BY actor.actor_id
+ORDER BY Revenue_of_Featured_Movies DESC;
+
+--customer address, latest rent, rent location
+
+
+SELECT 
+	CONCAT(customer.first_name || ' ' || customer.last_name) AS Customer,
+	country2.country AS Customer_Country,
+	city2.city AS Customer_City,
+	a2.address AS Customer_Address,
+	rental.rental_date AS Last_Rented,
+	country1.country AS Store_Country,
+	city1.city AS Store_City,
+	a1.address AS Store_Address
+FROM (
+    SELECT
+        customer_id,
+        MAX(rental_id) AS latest_rental_id
+    FROM rental
+    GROUP BY customer_id
+)  AS latest --latest rental
+
+INNER JOIN rental
+	ON latest.latest_rental_id = rental.rental_id
+INNER JOIN inventory
+	ON rental.inventory_id = inventory.inventory_id
+--store location
+INNER JOIN store
+	ON inventory.store_id = store.store_id
+INNER JOIN address a1
+	ON store.address_id = a1.address_id
+INNER JOIN city city1
+	ON a1.city_id = city1.city_id
+INNER JOIN country country1
+	ON city1.country_id = country1.country_id
+--customer location
+INNER JOIN customer 
+	ON rental.customer_id = customer.customer_id
+INNER JOIN address a2
+	ON customer.address_id = a2.address_id
+INNER JOIN city city2
+	ON a2.city_id = city2.city_id
+INNER JOIN country country2
+	ON city2.country_id = country2.country_id;
+
+-- checked if one specific movie being ranted by clients from different countries
+
+SELECT
+	CONCAT(customer.first_name || ' ' || customer.last_name) AS Customer,
+	country.country
+FROM customer
+
+INNER JOIN 	rental
+	ON customer.customer_id = rental.customer_id
+
+INNER JOIN address a --customer address
+	ON customer.address_id = a.address_id
+INNER JOIN city city
+	ON a.city_id = city.city_id
+INNER JOIN country country
+	ON city.country_id = country.country_id
+
+WHERE inventory_id = 4131
+
+
+--rents by inventory id
+SELECT 
+	inventory.inventory_id AS Inv,
+	COUNT(rental.rental_id) AS Amount
+FROM inventory
+	
+LEFT JOIN rental
+	ON inventory.inventory_id = rental.inventory_id
+
+GROUP BY inventory.inventory_id
+ORDER BY Amount DESC;

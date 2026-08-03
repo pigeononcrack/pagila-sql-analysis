@@ -9,3 +9,8 @@
 - there's 215 unique movies that wasn't returned
 - the amounts of not returned movies by category is about equall
 - on average there's 750 rents per month(excluding late spring and summer of 2022, when there were unusually large amount of rents)
+
+## Data Quality Issues
+- Customers from dozens of countries rent inventory from only two physical stores.
+- The same inventory copies are rented by customers living on different continents.
+- The dataset appears to be designed for SQL practice rather than to model a realistic rental business.
