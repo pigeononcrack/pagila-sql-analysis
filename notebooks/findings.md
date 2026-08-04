@@ -11,7 +11,7 @@
 - on average there's 750 rents per month(excluding late spring and summer of 2022, when there were unusually large amount of rents)
 - country with most rents is Mexico with 11827 rents and the second is India with considerably lower amount - 4195 rents. Mexico in this dataset has  428 customers and india 60. I've checked rents per customer and on average mexican customers rented 27 times, while indians on average have rented 69 movies(their value is really close to the average, while mexico has less then half of the average number of rents per customer
 - One customer shares the exact same first and last name as an actor in the database. The customer rented 69 films, while the actor appears in 22 films. Only one of the rented films features that actor. This is likely a coincidence, although the dataset does not provide enough information to confirm or reject that they represent the same person.
-- categories of rented movies around the globe is spread equally, tastes in movie categories is equall in this dataset 
+- No significant differences in movie category popularity were found between countries. Category preferences appear to be evenly distributed across the dataset.
 ## Data Quality Issues
 - Customers from dozens of countries rent inventory from only two physical stores.
 - The same inventory copies are rented by customers living on different continents.
