@@ -357,3 +357,98 @@ LEFT JOIN rental
 
 GROUP BY inventory.inventory_id
 ORDER BY Amount DESC;
+
+--discovering customer countries and amount of rents per customer per country
+
+SELECT
+	country.country AS Country,
+	COUNT(rental.rental_id) AS Rents_Amount,
+	COUNT(DISTINCT city.city_id) AS Cities_Amount,
+	COUNT(DISTINCT customer.customer_id) AS Customers_Amount,
+	COUNT(rental.rental_id)/COUNT(DISTINCT customer.customer_id) AS Rents_Per_Customer
+FROM rental
+
+INNER JOIN customer
+	ON rental.customer_id = customer.customer_id
+
+INNER JOIN address
+	ON customer.address_id = address.address_id
+
+INNER JOIN city
+	ON address.city_id = city.city_id
+
+INNER JOIN country
+	ON city.country_id = country.country_id
+
+GROUP BY country.country_id
+ORDER BY Rents_Per_Customer DESC;
+
+-- checking if there's actor who is a customer also, or at least has the same name
+SELECT 
+	CONCAT(first_name, ' ', last_name) AS Actor
+FROM actor
+
+WHERE EXISTS(
+	SELECT	1
+	FROM customer
+	WHERE customer.first_name = actor.first_name AND customer.last_name = actor.last_name
+)
+
+
+-- categories of movies customer with the highest count of rents rents 
+SELECT
+	category.name AS Category,
+	COUNT(category.category_id) AS Amount
+FROM rental
+
+INNER JOIN inventory
+	ON rental.inventory_id = inventory.inventory_id
+
+INNER JOIN customer
+	ON rental.customer_id = customer.customer_id
+
+INNER JOIN film
+	ON inventory.film_id = film.film_id
+
+INNER JOIN film_category
+	ON film.film_id = film_category.film_id
+
+INNER JOIN category
+	ON film_category.category_id = category.category_id
+
+WHERE customer.first_name = 'RUSSELL' AND customer.last_name = 'BRINSON'
+
+GROUP BY category.name;
+
+--checking specific countries for their taste in movies by category
+SELECT
+	category.name AS Category,
+	COUNT(category.category_id) AS Amount
+FROM rental
+
+INNER JOIN inventory
+	ON rental.inventory_id = inventory.inventory_id
+
+INNER JOIN customer
+	ON rental.customer_id = customer.customer_id
+
+INNER JOIN address
+	ON customer.address_id = address.address_id
+
+INNER JOIN city
+	ON address.city_id = city.city_id
+
+INNER JOIN country
+	ON city.country_id = country.country_id
+
+INNER JOIN film
+	ON inventory.film_id = film.film_id
+
+INNER JOIN film_category
+	ON film.film_id = film_category.film_id
+
+INNER JOIN category
+	ON film_category.category_id = category.category_id
+
+WHERE country.country = 'India'
+GROUP BY category.name;
