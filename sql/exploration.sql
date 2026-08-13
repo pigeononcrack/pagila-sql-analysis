@@ -452,3 +452,1075 @@ INNER JOIN category
 
 WHERE country.country = 'India'
 GROUP BY category.name;
+
+--days of month with most rents
+--day to rent
+
+SELECT 
+	EXTRACT(DAY FROM rental_date) AS Day_of_Month,
+	COUNT(rental_id) AS Amount
+FROM rental
+GROUP BY EXTRACT(DAY FROM rental_date)
+ORDER BY Day_of_Month ASC;
+
+--cte find clients with more rents then average
+
+WITH RentsByCustomer AS (
+	SELECT 
+		customer_id, 
+		COUNT(rental_id) AS Rents_Amount 
+	FROM rental
+
+	GROUP BY customer_id
+)
+
+SELECT 
+	CONCAT(customer.first_name, ' ', customer.last_name) AS Customer_Name, 
+	Rents_Amount
+FROM RentsByCustomer
+JOIN customer ON RentsByCustomer.customer_id = customer.customer_id
+WHERE Rents_Amount > (SELECT AVG(Rents_Amount) FROM RentsByCustomer)
+ORDER BY Rents_Amount DESC;
+
+--CTE film categories by total revenue when the revenue is higher then average
+WITH Total_Revenue AS (
+	SELECT 
+		category.category_id AS CatID,
+		category.name AS Category,
+		SUM(payment.amount) AS Revenue
+	FROM payment
+
+	INNER JOIN rental
+		ON payment.rental_id = rental.rental_id
+	INNER JOIN inventory
+		ON rental.inventory_id = inventory.inventory_id
+	INNER JOIN film_category
+		ON inventory.film_id = film_category.film_id
+	INNER JOIN category
+		ON film_category.category_id = category.category_id
+	GROUP BY category.category_id,category.name
+),
+Average_Revenue AS (
+	SELECT 
+		AVG(Revenue) AS Avg_Revenue
+	FROM Total_Revenue
+)
+SELECT 
+	Category,
+	Revenue
+FROM Total_Revenue
+CROSS JOIN Average_Revenue
+WHERE Revenue > Avg_Revenue
+ORDER BY Revenue DESC;
+
+--CTE search for customers with more profits then average, also amount of rents
+
+WITH Revenue_Per_Client AS (
+	SELECT 
+		customer_id,
+		SUM(amount) AS Revenue
+	FROM payment
+	GROUP BY customer_id
+),
+Average_Revenue AS(
+	SELECT 
+		AVG(Revenue) AS Avg_Revenue
+	FROM Revenue_Per_Client
+),
+High_Earning_Clients AS(
+	SELECT 
+		customer_id,
+		Revenue
+	FROM Revenue_Per_Client
+	CROSS JOIN Average_Revenue
+	WHERE Avg_Revenue < Revenue
+)
+SELECT
+	High_Earning_Clients.customer_id AS customer_id,
+	Revenue,
+	country.country AS Country,
+	COUNT(rental.rental_id) AS Amount_Rents
+FROM High_Earning_Clients
+
+INNER JOIN rental
+	ON High_Earning_Clients.customer_id = rental.customer_id
+
+INNER JOIN customer
+	ON High_Earning_Clients.customer_id = customer.customer_id
+
+INNER JOIN address 
+	ON customer.address_id = address.address_id
+
+INNER JOIN city
+	ON address.city_id = city.city_id
+
+INNER JOIN country
+	ON city.country_id = country.country_id
+
+GROUP BY High_Earning_Clients.customer_id,Revenue,Country
+ORDER BY Amount_Rents DESC;
+
+--CTE DENSE RANK most active months by year
+
+WITH monthly_rental_stats AS (
+SELECT
+	EXTRACT(year FROM rental_date) AS Year_Rent,
+	EXTRACT(month FROM rental_date) AS Month_Rent,
+	COUNT(rental_id) AS Amount_Rent,
+	DENSE_RANK() OVER (
+		PARTITION BY EXTRACT(year FROM rental_date)
+		ORDER BY COUNT(rental_id) DESC
+	) AS dense_rank_by_year
+FROM rental
+GROUP BY EXTRACT(year FROM rental_date),EXTRACT(month FROM rental_date)
+)
+SELECT
+	Year_Rent,
+	Month_Rent,
+	Amount_Rent
+FROM monthly_rental_stats
+WHERE dense_rank_by_year = 1;
+
+--CTE search for clients who made less then average rents and gave more then average revenue
+
+WITH Rents_Payments_Amount AS(
+SELECT
+	customer_id,
+	SUM(amount) AS Revenue,
+	COUNT(rental_id) AS Rents
+FROM payment
+GROUP BY customer_id
+),
+Rents_Payments_Average AS(
+SELECT	
+	AVG(Revenue) AS Average_Revenue,
+	AVG(Rents) AS Average_Rents
+FROM Rents_Payments_Amount
+)
+
+SELECT
+	CONCAT(customer.first_name, ' ',customer.last_name) AS Client_Name,
+	Revenue,
+	Rents
+FROM Rents_Payments_Amount
+
+INNER JOIN customer
+ON Rents_Payments_Amount.customer_id = customer.customer_id
+CROSS JOIN Rents_Payments_Average
+WHERE Revenue>Average_Revenue AND Rents<Average_Rents;
+
+--CTE find the clients with the last rent being month ago or more
+
+WITH Rent_Amount AS(
+SELECT 
+	customer_id,
+	COUNT(DISTINCT rental_id) AS Rents
+FROM rental
+GROUP BY customer_id
+),
+Rent_Latest_Date AS(
+SELECT
+	customer_id,
+	MAX(rental_date) AS Latest_Rent
+FROM rental
+GROUP BY customer_id
+),
+Max_Rental_Date AS(
+SELECT
+	MAX(rental_date) AS Last_Rental_Day
+FROM Rental
+)
+SELECT
+	CONCAT(customer.first_name, ' ', customer.last_name) AS Customer_Name,
+	Rents,
+	Latest_Rent
+FROM Rent_Latest_Date
+
+INNER JOIN Rent_Amount ON Rent_Latest_Date.customer_id = Rent_Amount.customer_id
+CROSS JOIN Max_Rental_Date
+INNER JOIN customer ON Rent_Latest_Date.customer_id = customer.customer_id
+
+WHERE Last_Rental_Day - INTERVAL '1 month' > Latest_Rent;
+
+--CTE the store with most load per copy(the biggest amount of rents per copy)
+
+WITH Rents AS( --rents per store
+	SELECT 
+		store.store_id AS StoreID,
+		COUNT(payment.rental_id) AS Rents_Amount
+	FROM payment
+
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN inventory ON rental.inventory_id = inventory.inventory_id
+	INNER JOIN store ON inventory.store_id = store.store_id
+	GROUP BY store.store_id
+),
+Invent AS( --inv per store
+	SELECT
+		store_id AS StoreID,
+		COUNT(inventory_id) AS Inventory_Amount
+	FROM inventory
+	
+	GROUP BY store_id
+)
+	SELECT
+		Rents.StoreID AS Store1,
+		ROUND(1.0*Rents_Amount/Inventory_Amount,2) AS Store_Load
+	FROM Rents
+
+	INNER JOIN Invent ON Rents.StoreID = Invent.StoreID
+	ORDER BY Store_Load DESC
+	LIMIT 1;
+
+--find 10 movies with the highest revenue and lesser then average copies in inventories
+
+WITH movie_revenue AS(
+	SELECT
+		inventory.film_id AS Revenue_filmid,
+		SUM(payment.amount) AS revenue
+	FROM payment
+
+	INNER JOIN rental
+		ON payment.rental_id = rental.rental_id
+	INNER JOIN inventory
+		ON rental.inventory_id = inventory.inventory_id
+	GROUP BY inventory.film_id
+),
+movie_copies AS(
+	SELECT 
+		film_id AS Copies_filmid,
+		COUNT(inventory_id) AS copies
+	FROM inventory
+	GROUP BY film_id
+),
+copies_average AS(
+	SELECT 
+		AVG(copies) AS average
+	FROM movie_copies
+)
+SELECT 
+	film.title AS Movie_Name,
+	revenue
+FROM movie_revenue
+
+INNER JOIN film on Revenue_filmid = film_id
+INNER JOIN movie_copies ON Revenue_filmid = Copies_filmid
+CROSS JOIN copies_average
+
+WHERE copies < average 
+ORDER BY revenue DESC
+LIMIT 10;
+
+-- CTE ROW NUMBER LAST 3 RENTS BY CUSTOMER
+
+WITH Customer_Rents AS(
+	SELECT 
+		customer_id,
+		rental_date,
+		film.title AS Movie
+	FROM rental
+	INNER JOIN inventory ON rental.inventory_id=inventory.inventory_id
+	INNER JOIN film ON inventory.film_id=film.film_id
+),
+Numbered_Rents AS(	
+	SELECT
+		customer_id,
+		rental_date,
+		Movie,
+		ROW_NUMBER() OVER(PARTITION BY customer_id ORDER BY rental_date DESC) AS rental_row
+	FROM Customer_Rents
+)
+SELECT
+	CONCAT(customer.first_name, ' ', customer.last_name) AS Customer_Name,
+	rental_date,
+	Movie,
+	rental_row
+FROM Numbered_Rents
+
+INNER JOIN customer ON Numbered_Rents.customer_id = customer.customer_id
+
+WHERE rental_row <=3;
+
+-- CTE RANK top 5 movies by revenue in each category
+
+WITH Movie_Revenue AS(
+	SELECT 
+		category.name AS Category,
+		film.title AS Movie,
+		SUM(payment.amount) AS Revenue
+	FROM payment
+
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN inventory ON rental.inventory_id = inventory.inventory_id
+	INNER JOIN film ON inventory.film_id = film.film_id
+	INNER JOIN film_category ON film.film_id = film_category.film_id
+	INNER JOIN category ON film_category.category_id = category.category_id
+
+	GROUP BY category.name,film.title
+),
+Categories_Ranked AS(
+	SELECT 
+		Category,
+		Movie,
+		Revenue,
+		RANK() OVER (
+			PARTITION BY category
+			ORDER BY Revenue DESC) AS Ranked
+	FROM Movie_Revenue
+)
+SELECT 
+	Category,
+	Movie,
+	Revenue,
+	Ranked
+FROM Categories_Ranked
+WHERE Ranked <=5;
+
+--top 3 most valueable in replacement cost by category
+
+WITH Replacement_Info AS(
+	SELECT 
+		category.name AS Category,
+		film.title AS Movie,
+		film.replacement_cost AS Replacement_Cost
+	FROM film
+
+	INNER JOIN film_category ON film.film_id = film_category.film_id
+	INNER JOIN category ON film_category.category_id = category.category_id
+),
+Replacement_Ranked AS (
+	SELECT 
+		Category,
+		Movie,
+		Replacement_Cost,
+		DENSE_RANK() OVER (
+			PARTITION BY category
+			ORDER BY Replacement_Cost DESC) AS Ranked
+	FROM Replacement_Info
+)
+SELECT
+	Category,
+	Movie,
+	Replacement_Cost,
+	Ranked
+FROM Replacement_Ranked
+WHERE Ranked <= 3;
+
+--CTE LAG revenue by client monthly
+
+WITH customer_revenue AS(
+	SELECT
+		payment.customer_id AS Customer_id,
+		EXTRACT('MONTH' FROM rental.rental_date) AS Rental_Month,
+		SUM(payment.amount) AS Payments
+	FROM payment
+	
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	GROUP BY payment.customer_id, EXTRACT('MONTH' FROM rental.rental_date)
+),
+lag_revenue AS(
+	SELECT
+		Customer_id,
+		Rental_Month,
+		Payments,
+		LAG(Payments, 1, NULL) OVER
+			(
+				PARTITION BY Customer_id
+				ORDER BY Rental_Month
+			) AS Previous_Payments
+	FROM customer_revenue
+)
+
+SELECT
+	CONCAT(customer.first_name, ' ', customer.last_name) AS Customer_Name,
+	Rental_Month,
+	Payments,
+	Previous_Payments,
+	Payments-Previous_Payments AS Difference
+FROM lag_revenue
+
+INNER JOIN customer ON lag_revenue.Customer_id = customer.customer_id;
+
+--CTE LAG amount of rents by month
+
+WITH monthly_rents AS (
+	SELECT 
+		EXTRACT ('MONTH' FROM rental_date) AS Month,
+		COUNT(rental_id) AS Rents
+	FROM rental
+
+	GROUP BY EXTRACT ('MONTH' FROM rental_date)
+),
+
+prev_monthly_rents AS(
+	SELECT
+		Month,
+		Rents,
+		LAG(Rents,1,NULL) OVER(ORDER BY Month) AS Prev_Rents
+	FROM monthly_rents
+)
+SELECT 
+	Month,
+	Rents,
+	Prev_Rents,
+	Rents-Prev_Rents
+FROM prev_monthly_rents;
+
+--CTE LAG Amount of rents per month by customer
+
+WITH Client_Rents AS(
+	SELECT 
+		customer_id,
+		EXTRACT('Month' FROM rental_date) AS Month,
+		COUNT(rental_id) AS Rents
+	FROM rental
+
+	GROUP BY customer_id,EXTRACT('Month' FROM rental_date)
+),
+Prev_Client_Rents AS(
+	SELECT 
+		customer_id,
+		Month,
+		Rents,
+		LAG(Rents, 1, NULL) OVER (PARTITION BY customer_id ORDER BY Month) AS Prev_Rents
+	FROM Client_Rents
+)
+SELECT 	
+	CONCAT(customer.first_name, ' ', customer.last_name) AS Customer_Name,
+	Month,
+	Rents,
+	Prev_Rents,
+	Rents - Prev_Rents  AS Difference
+FROM Prev_Client_Rents
+	
+INNER JOIN customer ON Prev_Client_Rents.customer_id = customer.customer_id;
+
+--CTE LAG rent dates by clients, with previous rents
+
+WITH Customer_Rents AS(
+	SELECT 
+		CONCAT(customer.first_name, ' ',customer.last_name) AS Customer,
+		rental.rental_date AS Date,
+		film.title AS Movie
+	FROM rental
+
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+	INNER JOIN inventory ON rental.inventory_id = inventory.inventory_id
+	INNER JOIN film ON inventory.film_id = film.film_id
+)
+	SELECT 
+		Customer,
+		Date,
+		Movie,
+		LAG(Date,1,NULL) OVER(PARTITION BY Customer ORDER BY Date)
+	FROM Customer_Rents;
+
+-- CTE COMPARISON RANK DENSE_RANK ROW_NUMBER categories replacement costs
+
+WITH Movie_Category AS(
+	SELECT 
+		category.name AS Category,
+		film.title AS Movie,
+		film.replacement_cost AS Cost
+	FROM film
+
+	INNER JOIN film_category ON film.film_id = film_category.film_id
+	INNER JOIN category ON film_category.category_id = category.category_id
+)
+
+SELECT 
+	Category,
+	Movie,
+	Cost,
+	ROW_NUMBER() OVER( PARTITION BY Category ORDER BY Cost DESC) AS Row_Number,
+	RANK() OVER( PARTITION BY Category ORDER BY Cost DESC) AS Rank,
+	DENSE_RANK() OVER( PARTITION BY Category ORDER BY Cost DESC) AS Dense_Rank
+FROM Movie_Category;
+
+--CTE LEAD finding next rental date
+
+WITH customer_rents AS(
+	SELECT 
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		rental.rental_date AS Date,
+		film.title AS Movie
+	FROM rental
+
+	INNER JOIN inventory ON rental.inventory_id = inventory.inventory_id
+	INNER JOIN film ON inventory.film_id = film.film_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+)
+SELECT 
+	Customer,
+	Date,
+	Movie,
+	LEAD(date,1,NULL) OVER(PARTITION BY Customer ORDER BY Date) AS Next_Rental
+FROM customer_rents;
+
+--CTE LAG RANK longest gaps between rents
+
+WITH rents AS(
+	SELECT 
+		customer_id,
+		rental_date
+	FROM rental
+),
+prev AS(
+	SELECT
+		customer_id,
+		rental_date,
+		LAG(rental_date,1,NULL) OVER (PARTITION BY customer_id ORDER BY rental_date) AS Previous_Rental
+	FROM rents
+),
+ranking AS(
+	SELECT 
+		customer_id,
+		rental_date,
+		Previous_Rental,
+		rental_date-Previous_Rental AS Difference,
+		RANK() OVER(PARTITION BY customer_id ORDER BY rental_date-Previous_Rental DESC NULLS LAST) AS Ranked
+	FROM prev
+)
+SELECT
+	customer_id,
+	rental_date,
+	Previous_Rental,
+	Difference
+FROM ranking
+WHERE Ranked = 1;
+
+--CTE GAPS AND ISLANDS SUM() longest consecutive rents by day by customer
+
+WITH Customer_Rent AS (
+    SELECT
+        rental.customer_id,
+        CAST(rental.rental_date AS date) AS Rental_Date,
+        LAG(CAST(rental.rental_date AS date)) OVER (
+            PARTITION BY rental.customer_id
+            ORDER BY rental.rental_date
+        ) AS Previous_Date
+    FROM rental
+),
+
+Streak_Count AS (
+    SELECT
+        customer_id,
+        Rental_Date,
+        Previous_Date,
+        CASE
+            WHEN Previous_Date IS NULL THEN 1
+            WHEN Rental_Date - Previous_Date = 1 THEN 0
+            ELSE 1
+        END AS New_Streak
+    FROM Customer_Rent
+),
+
+Streak AS (
+    SELECT
+        customer_id,
+        Rental_Date,
+        SUM(New_Streak) OVER (
+            PARTITION BY customer_id
+            ORDER BY Rental_Date
+        ) AS Streak_ID
+    FROM Streak_Count
+),
+
+Streak_Length AS (
+    SELECT
+        customer_id,
+        Streak_ID,
+        COUNT(*) AS Streak_Length
+    FROM Streak
+    GROUP BY customer_id, Streak_ID
+),
+
+Ranked AS (
+    SELECT
+        customer_id,
+        Streak_Length,
+        RANK() OVER (
+            PARTITION BY customer_id
+            ORDER BY Streak_Length DESC
+        ) AS Ranked
+    FROM Streak_Length
+)
+
+SELECT
+    CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+    Ranked.Streak_Length AS Longest_Streak
+FROM Ranked
+INNER JOIN customer
+    ON Ranked.customer_id = customer.customer_id
+WHERE Ranked = 1
+ORDER BY Longest_Streak DESC;
+
+--CTE DENSE_RANK top 3 movies by rent per category
+
+WITH Rents AS (
+	SELECT 
+		category.name AS Category,
+		film.title AS Movie,
+		COUNT(rental.rental_id) AS Rents_Amount
+	FROM rental
+
+	INNER JOIN inventory ON rental.inventory_id = inventory.inventory_id
+	INNER JOIN film ON inventory.film_id = film.film_id
+	INNER JOIN film_category ON film.film_id = film_category.film_id
+	INNER JOIN category ON film_category.category_id = category.category_id
+
+	GROUP BY category.name, film.title
+),
+Ranked AS(
+	SELECT
+		Category,
+		Movie,
+		Rents_Amount,
+		DENSE_RANK() OVER (PARTITION BY Category ORDER BY Rents_Amount DESC) AS Ranked
+	FROM Rents
+)
+SELECT
+	Category,
+	Movie,
+	Rents_Amount,
+	Ranked
+FROM Ranked
+
+WHERE Ranked <= 3;
+
+-- CTE ROW_NUMBER last three rents by customer
+
+WITH Rent_Dates AS(
+	SELECT 
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		rental.rental_date AS Date,
+		film.title AS Movie
+	FROM rental
+
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+	INNER JOIN inventory ON rental.inventory_id = inventory.inventory_id
+	INNER JOIN film ON inventory.film_id = film.film_id
+),
+Numbered AS(
+	SELECT 	
+		Customer,
+		Date,
+		Movie,
+		ROW_NUMBER() OVER (PARTITION BY Customer ORDER BY Date DESC) AS Row_Number
+	FROM Rent_Dates
+)
+SELECT 
+	Customer,
+		Date,
+		Movie,
+		Row_Number
+FROM Numbered
+WHERE Row_Number <= 3;
+
+-- CTE LEAD ROW_NUMBER first rent by customer and days in between first and second
+
+WITH First_Rental AS(
+	SELECT
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		rental.rental_date AS Date
+	FROM rental
+	
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+),
+Second_Rental AS(
+	SELECT
+		Customer,
+		Date,
+		LEAD(Date,1,NULL) OVER(PARTITION BY Customer ORDER BY Date) AS Next_Date
+	FROM First_Rental
+),
+Numbered AS(
+	SELECT 
+		Customer,
+		Date,
+		Next_Date,
+		ROW_NUMBER() OVER(PARTITION BY Customer ORDER BY Date) AS Row_Numbered
+	FROM Second_Rental
+)
+SELECT 
+	Customer,
+	Date,
+	Next_Date,
+	Next_Date-Date AS Days_Between
+FROM Numbered
+WHERE Row_Numbered = 1 AND Next_Date IS NOT NULL;
+
+--CTE max avg payments by client
+
+WITH All_Payments AS(
+	SELECT
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment.amount AS Payment
+	FROM payment
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+),
+Average_Payment AS(
+	SELECT 
+		Customer,
+		AVG(Payment) AS Payment
+	FROM All_Payments
+	
+	GROUP BY Customer
+),
+Max_Payment AS(
+	SELECT
+		Customer,
+		MAX(Payment) AS Payment
+	FROM All_Payments
+
+	GROUP BY Customer
+)
+
+SELECT
+	Max_Payment.Customer,
+	Max_Payment.Payment AS Max_Payment,
+	Average_Payment.Payment AS Average_Payment,
+	Max_Payment.Payment-Average_Payment.Payment AS Difference
+FROM Max_Payment
+INNER JOIN Average_Payment ON Max_Payment.Customer = Average_Payment.Customer
+
+ORDER BY Max_Payment DESC;
+
+--CTE AGG WINDOW FUNC Customer | Payment | Average_Payment | Max_Payment | Total_Payments
+
+WITH Customer_Payment AS(
+	SELECT 	
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment.amount AS Payment
+	FROM payment
+
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+)
+	SELECT 
+		Customer,
+		Payment,
+		AVG(Payment) OVER(PARTITION BY Customer) AS Average_Payment,
+		MAX(Payment) OVER(PARTITION BY Customer) AS Maximum_Payment,
+		SUM(Payment) OVER(PARTITION BY Customer) AS Total_Payment
+
+	FROM Customer_Payment;
+	
+--CTE RUNNING TOTAL SUM payments by clients
+
+WITH Payments AS (
+	SELECT 	
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment_date AS Date,
+		amount AS Amount
+	FROM payment
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+)
+
+SELECT 
+	Customer,
+	Date, 
+	Amount,
+	SUM(Amount) OVER (PARTITION BY Customer ORDER BY Date) AS Running_Total
+FROM Payments;
+
+--CTE SUM () ROWS BETWEEN every payment with previous
+
+WITH Payments AS (
+	SELECT 	
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment_date AS Date,
+		amount AS Payment
+	FROM payment
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+)
+SELECT 
+	Customer,
+	Date,
+	Payment,
+	SUM(Payment) OVER(PARTITION BY Customer ORDER BY Date ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+FROM Payments;
+
+--Customer | Payment_Date | Payment | Avg_Last_3
+
+WITH Payments AS (
+	SELECT 	
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment_date AS Date,
+		amount AS Payment
+	FROM payment
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+)
+SELECT 
+	Customer,
+	Date,
+	Payment,
+	AVG(Payment) OVER(PARTITION BY Customer ORDER BY Date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+FROM Payments;
+
+--CTE FIRST_VALUE
+--Customer | Payment_Date | Payment | First_Payment
+
+WITH Payments AS (
+	SELECT 	
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment_date AS Date,
+		amount AS Payment
+	FROM payment
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+)
+SELECT
+	Customer,
+	Date,
+	Payment,
+	FIRST_VALUE(Payment) OVER(PARTITION BY Customer ORDER BY Date) 
+FROM Payments;
+
+--CTE LAST_VALUE()
+--Customer | Payment_Date | Payment | First_Payment
+
+WITH Payments AS (
+	SELECT 	
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment_date AS Date,
+		amount AS Payment
+	FROM payment
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+)
+SELECT
+	Customer,
+	Date,
+	Payment,
+	LAST_VALUE(Payment) OVER(PARTITION BY Customer ORDER BY Date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) 
+FROM Payments;
+
+--CTE NTH_VALUE()
+--Customer | Payment_Date | Payment | First_Payment
+
+WITH Payments AS (
+	SELECT 	
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment_date AS Date,
+		amount AS Payment
+	FROM payment
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+)
+SELECT
+	Customer,
+	Date,
+	Payment,
+	NTH_VALUE(Payment,2) OVER(PARTITION BY Customer ORDER BY Date) 
+FROM Payments;
+
+--CTE NTILE()
+--Customer | Payment_Date | Payment | Quartile
+
+WITH Payments AS (
+	SELECT 	
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment_date AS Date,
+		amount AS Payment
+	FROM payment
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+)
+SELECT
+	Customer,
+	Date,
+	Payment,
+	NTILE(4) OVER (PARTITION BY Customer ORDER BY Payment) AS Quartile 
+FROM Payments;
+
+--CTE RANK
+--Customer | Payment_Date | Payment | Payment_Rank
+
+WITH Payments AS (
+	SELECT 	
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment_date AS Date,
+		amount AS Payment
+	FROM payment
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+)
+SELECT
+	Customer,
+	Date,
+	Payment,
+	RANK() OVER (PARTITION BY Customer ORDER BY Payment DESC) AS Payment_Rank 
+FROM Payments;
+
+--CTE  SUM percentage of payment by customer
+--Customer | Payment_Date | Payment | Percentage
+
+WITH Payments AS (
+	SELECT 	
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		payment_date AS Date,
+		amount AS Payment
+	FROM payment
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+),
+Total_Payment AS(
+	SELECT
+		Customer,
+		Date,
+		Payment,
+		SUM(Payment) OVER(PARTITION BY Customer) AS Total
+	FROM Payments
+		
+)
+SELECT
+	Customer,
+	Date,
+	Payment,
+	ROUND(100.0*Payment/Total,2) AS Percentage
+FROM Total_Payment;
+
+--CTE LAG days since prev rent
+--Customer | Rental_Date | Movie | Days_Since_Previous
+
+WITH Movie_Rent AS(
+	SELECT 
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		rental.rental_date AS Date,
+		film.title AS Movie
+	FROM rental
+
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+	INNER JOIN inventory ON rental.inventory_id = inventory.inventory_id
+	INNER JOIN film ON inventory.film_id = film.film_id
+),
+Previous_Rent AS(
+	SELECT
+		Customer,
+		Date,
+		Movie,
+		LAG(Date, 1, NULL) OVER(PARTITION BY Customer ORDER BY Date) AS Previous
+	FROM Movie_Rent
+)
+SELECT
+	Customer,
+	Date,
+	Movie,
+	Date-Previous
+FROM Previous_Rent;
+
+--CTE RANK() categories by rents per movie
+
+WITH Movie_Rents AS(
+	SELECT 
+		category.name AS Category,
+		film.title AS Movie,
+		COUNT(rental.rental_id) AS Rentals
+	FROM rental
+
+	INNER JOIN inventory ON rental.inventory_id = inventory.inventory_id
+	INNER JOIN film ON inventory.film_id = film.film_id
+	INNER JOIN film_category ON film.film_id = film_category.film_id
+	INNER JOIN category ON film_category.category_id = category.category_id
+
+	GROUP BY category.name, film.title
+)
+SELECT
+	Category,
+	Movie,
+	Rentals,
+	RANK() OVER (PARTITION BY Category ORDER BY Rentals DESC) AS Ranked
+FROM Movie_Rents;
+
+-- CTE RANK() ALL RENTS, CLIENTS RANKED BY AMOUNT OF REVENUE
+--Customer | Rentals | Total_Payments | Avg_Payment | Max_Payment | Revenue_Rank
+
+WITH Client_Rents AS(
+	SELECT 
+		CONCAT(customer.first_name, ' ', customer.last_name) AS Customer,
+		COUNT(rental.rental_id) AS Rents,
+		SUM(payment.amount) AS Total_Payments,
+		AVG(payment.amount) AS Average_Payment,
+		MAX(payment.amount) AS Max_Payment
+	FROM payment
+
+	INNER JOIN rental ON payment.rental_id = rental.rental_id
+	INNER JOIN customer ON rental.customer_id = customer.customer_id
+	
+	GROUP BY customer.customer_id
+)
+SELECT
+	Customer,
+	Rents,
+	Total_Payments,
+	Average_Payment,
+	Max_Payment,
+	RANK() OVER(ORDER BY Total_Payments DESC) AS Rank
+FROM Client_Rents;
+
+--CTE RANK AVG movies by category with most rents
+--Category | Top_Movie | Top_Movie_Rentals | Avg_Movie_Rentals
+
+WITH Movie_Rents AS(
+	SELECT 
+		category.name AS Category,
+		film.title AS Movie,
+		COUNT(rental.rental_id) AS Rents
+	FROM rental
+	
+	INNER JOIN inventory ON rental.inventory_id = inventory.inventory_id
+	INNER JOIN film ON inventory.film_id = film.film_id
+	INNER JOIN film_category ON film.film_id = film_category.film_id
+	INNER JOIN category ON film_category.category_id = category.category_id
+
+	GROUP BY category.name, film.title
+),
+Ranked_Rents AS(
+	SELECT 	
+		Category,
+		Movie,
+		Rents,
+		RANK() OVER(PARTITION BY Category ORDER BY Rents DESC) AS Ranked,
+		AVG(Rents) OVER(PARTITION BY Category) AS Average_Rents
+	FROM Movie_Rents
+
+	GROUP BY Category,Movie,Rents
+)
+SELECT 	
+	Category,
+	Movie,
+	Ranked,
+	Average_Rents
+FROM Ranked_Rents
+WHERE Ranked = 1;
+
+--CTE CROSS JOIN staff percentages
+--Staff | Payments | Revenue | Revenue_Percentage
+
+WITH Staff_Payments AS(
+	SELECT
+		CONCAT(staff.first_name, ' ', staff.last_name) AS Staff,
+		COUNT(payment.payment_id) AS Payments,
+		SUM(payment.amount) AS Revenue
+	FROM payment
+	INNER JOIN staff ON payment.staff_id = staff.staff_id
+
+	GROUP BY Staff
+),
+Total_Revenue AS(
+	SELECT 
+		SUM(Revenue) AS Total
+	FROM Staff_Payments
+)
+SELECT
+	Staff,
+	Payments,
+	Revenue,
+	ROUND(100.0 * Revenue/Total_Revenue.Total,2) AS Percentage
+FROM Staff_Payments
+CROSS JOIN Total_Revenue;
