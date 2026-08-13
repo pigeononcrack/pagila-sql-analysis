@@ -1,2 +1,1 @@
-# pagila-sql-analysis
-SQL exploration and data analysis using the Pagila PostgreSQL sample database.
+This repository is used as a SQL practice environment while learning and improving my SQL skills.
